@@ -3,6 +3,11 @@
 把学习通、课程群和教务通知，整理成**有原文依据、需要确认的学习任务**。
 本地运行，数据保存在自己的电脑。基础版不需要平台密码或模型 API Key。
 
+![CourseInbox 本地示例界面](docs/images/overview.png)
+
+[查看手机宽度界面](docs/images/mobile.png) · [验收记录](docs/verification/acceptance.md)
+
+
 ## 30 秒启动
 
 项目目录：`D:\Doc\course-inbox`。
