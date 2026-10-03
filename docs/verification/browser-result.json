@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "journeys": [
+    "demo",
+    "extension review",
+    "text import",
+    "confirmation",
+    "checklist",
+    "done/submitted",
+    "calendar download",
+    "real screenshot OCR",
+    "offline assistant",
+    "Android ingest",
+    "mobile viewport"
+  ],
+  "browser": "Edge",
+  "consoleErrors": []
+}

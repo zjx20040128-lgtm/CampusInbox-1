@@ -4,6 +4,8 @@ import json
 import os
 import secrets
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 from courseinbox.core import Inbox
 from courseinbox.http import create_server
@@ -13,6 +15,7 @@ def main():
     parser=argparse.ArgumentParser(description='CourseInbox local task hub')
     parser.add_argument('--host',default='127.0.0.1')
     parser.add_argument('--port',type=int,default=8765)
+    parser.add_argument('--open-browser',action='store_true')
     parser.add_argument('--data-dir',default=str(Path(__file__).resolve().parent/'data'))
     args=parser.parse_args()
     root=Path(__file__).resolve().parent
@@ -35,6 +38,10 @@ def main():
     print(f'CourseInbox ready: http://127.0.0.1:{server.server_port}',flush=True)
     print(f'Data: {directory}\nMobile token file: {token_path}',flush=True)
     if args.host=='0.0.0.0': print('LAN mode enabled; remote clients require the access token.',flush=True)
+    if args.open_browser:
+        opener=threading.Timer(0.6,lambda:webbrowser.open(f'http://127.0.0.1:{server.server_port}'))
+        opener.daemon=True
+        opener.start()
     try: server.serve_forever()
     except KeyboardInterrupt: print('\nCourseInbox stopped.',flush=True)
     finally: server.server_close()

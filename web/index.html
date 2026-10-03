@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#245b48"><title>CourseInbox · 课务收件箱</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="#today"><span class="brand-symbol">CI<span>·</span></span><span><strong>CourseInbox</strong><small>课务收件箱</small></span></a>
+  <div class="workspace-chip"><span class="avatar">我</span><div>我的学习空间<small>PERSONAL WORKSPACE</small></div><span class="local-dot"></span></div>
+  <p class="nav-label">学习工作台</p>
+  <nav aria-label="工作台导航">
+    <button data-view="today" class="nav-item active"><span class="nav-icon">◈</span>今日概览</button>
+    <button data-view="tasks" class="nav-item"><span class="nav-icon">☑</span>待办任务<span id="taskBadge" class="nav-badge">0</span></button>
+    <button data-view="inbox" class="nav-item"><span class="nav-icon">▤</span>消息收件箱<span id="inboxBadge" class="nav-badge">0</span></button>
+    <button data-view="calendar" class="nav-item"><span class="nav-icon">▦</span>截止日历</button>
+  </nav>
+  <p class="nav-label second-label">连接与工具</p>
+  <nav><button data-view="mobile" class="nav-item"><span class="nav-icon">▯</span>手机连接</button><button id="assistantOpen" class="nav-item"><span class="nav-icon">✧</span>课务助手</button></nav>
+  <div class="sidebar-bottom"><div class="mode-caption"><span class="local-dot"></span><span id="modeName">本地规则模式</span><span class="version">v0.1</span></div><p id="modeHint">数据保存在这台电脑。<br>每个任务都能追溯到通知原文。</p></div>
+</aside>
+<div class="app-shell">
+  <header class="topbar"><div class="breadcrumb"><span>WORKSPACE</span><b>/</b>我的学习空间</div><div class="top-actions"><span class="sync-label"><span class="local-dot"></span>本地已连接</span><button id="refreshButton" class="button icon-button" title="刷新数据" aria-label="刷新数据">↻</button><button id="importOpen" class="button primary"><span>＋</span> 导入通知</button></div></header>
+  <main id="content" aria-live="polite"></main>
+  <footer class="page-footer"><span>把消息整理好，把时间留给学习。</span><span>CourseInbox / 本地部署基础版</span></footer>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<dialog id="importDialog" class="dialog import-dialog">
+  <div class="dialog-heading"><div><span class="eyebrow">NEW MESSAGE</span><h2>导入一条课程通知</h2><p>粘贴文字，或先识别截图；生成草稿后再确认。</p></div><button class="close-button" data-close aria-label="关闭">×</button></div>
+  <form id="importForm">
+    <label class="file-zone" for="noticeFile"><span class="file-icon">↥</span><strong>选择截图或通知文件</strong><span>PNG / JPG / BMP / TXT / 文本 PDF · 最大 8 MB</span><input id="noticeFile" type="file" accept=".png,.jpg,.jpeg,.bmp,.txt,.md,.pdf"></label>
+    <p id="fileStatus" class="helper" role="status"></p>
+    <label class="field">消息正文<textarea id="noticeText" rows="6" required placeholder="《软件工程》 第三次作业：请提交实验报告、源代码。截止：10月12日 23:59。"></textarea></label>
+    <div class="form-grid"><label class="field">消息来源<input id="noticeSource" value="学习通" maxlength="120" required></label><label class="field">消息发布时间<input id="noticeTime" type="datetime-local" required><span class="helper">北京时间；“明天”等以此为准。</span></label><label class="field">课程（可选）<input id="noticeCourse" placeholder="留空时从原文识别" maxlength="100"></label><label class="field">班级 / 分组（可选）<input id="noticeScope" placeholder="例如：计科 1 班" maxlength="100"></label></div>
+    <label class="field">提取方式<select id="noticeMode"><option value="rules">本地规则提取</option><option value="agent">模型工具调用（需服务端配置）</option></select></label>
+    <p id="importError" class="error-text" role="alert"></p><div class="dialog-actions"><button type="button" class="button" data-close>取消</button><button id="importSubmit" class="button primary" type="submit">提取任务草稿 →</button></div>
+  </form>
+</dialog>
+<dialog id="taskDialog" class="dialog"><div class="dialog-heading"><div><span class="eyebrow">TASK DETAILS</span><h2 id="detailTitle">任务详情</h2></div><button class="close-button" data-close aria-label="关闭">×</button></div><div id="taskDetail"></div></dialog>
+<dialog id="assistantDialog" class="dialog"><div class="dialog-heading"><div><span class="eyebrow">COURSE ASSISTANT</span><h2>课务助手</h2><p id="assistantMode">本地规则查询</p></div><button class="close-button" data-close aria-label="关闭">×</button></div><form id="assistantForm"><div class="form-grid"><label class="field">课程范围<input id="assistantCourse" placeholder="留空查询全部课程"></label><label class="field">班级范围<input id="assistantScope" placeholder="留空查询全部班级"></label></div><label class="field">你的问题<textarea id="assistantQuestion" rows="3" required placeholder="我还有哪些任务没提交？"></textarea></label><button id="assistantSubmit" class="button primary" type="submit">查询任务</button></form><div id="assistantAnswer" class="answer-panel" hidden></div><div id="assistantTrace"></div></dialog>
+<dialog id="authDialog" class="dialog"><div class="dialog-heading"><div><h2>连接你的 CourseInbox</h2><p>远程访问需要电脑端的访问令牌。</p></div></div><form id="authForm"><label class="field">访问令牌<input id="authToken" type="password" required autocomplete="off"></label><p id="authError" class="error-text"></p><button type="submit" class="button primary">连接</button></form></dialog>
+</body></html>
