@@ -73,6 +73,9 @@ class ApiTests(unittest.TestCase):
         self.assertTrue(json.loads(body)['duplicate'])
         payload['package_name']='com.private.chat'
         self.assertEqual(self.request('/api/mobile/notifications','POST',payload)[0],403)
+    def test_mobile_timestamp_is_required_for_relative_deadline(self):
+        payload={'package_name':'com.chaoxing.mobile','notification_key':'missing-time','title':'《高等数学》 第一次作业','text':'明天截止'}
+        self.assertEqual(self.request('/api/mobile/notifications','POST',payload)[0],400)
     def test_missing_resource_is_404_not_server_error(self):
         self.assertEqual(self.request('/api/tasks/nonexistent')[0],404)
     def test_encoded_traversal_cannot_read_local_db(self):
