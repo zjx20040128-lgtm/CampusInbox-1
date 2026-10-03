@@ -155,6 +155,10 @@ def create_server(host,port,inbox,token,root=None,agent=None):
                                             candidates=analysis['candidates'],mode=analysis['mode'],trace=analysis['trace'])
                         result['answer'],result['limited']=analysis['answer'],analysis['limited']
                         return self.response(200 if result['duplicate'] else 201,result)
+                    if method=='POST' and re.fullmatch(r'/api/messages/[a-f0-9]+/reanalyze',path):
+                        if set(body)-{'mode'} or body.get('mode','rules')!='rules':
+                            raise ValidationError('重新提取入口使用本地规则，请传空对象或 mode=rules。')
+                        return self.response(200,inbox.reanalyze(path.split('/')[3]))
                     if method=='POST' and path=='/api/files/extract':
                         if set(body)-{'filename','content_base64'}: raise ValidationError('文件字段不支持。')
                         name=body.get('filename','')

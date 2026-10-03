@@ -36,9 +36,11 @@ mode 为 rules / agent / default。默认按服务端配置。明确 agent 但�
 
 草稿包含 candidate（title/course/scope/deadline/kind/requirements/operation/evidence/warnings）、action（create/update/link/cancel）、target_id、expected_version、before。
 
-`POST /api/proposals/{id}/confirm`，JSON对象为可选编辑字段：title、course、scope、deadline、kind、requirements。空对象按草稿确认。已有目标的名称、课程、班级不可改，需重新导入重新匹配。与已有任务链接/更新时，空截止和空材料保留已有值。
+`POST /api/proposals/{id}/confirm`，JSON对象为可选编辑字段：title、course、scope、deadline、kind、requirements。空对象按草稿确认。已有目标的名称、课程、班级不可改，需重新导入重新匹配。与已有任务链接/更新时，空截止和空材料保留已有值。确认时根据编辑后内容重算有效动作；纯link只关联来源，发生修改则按update执行时间和版本保护，并以实际动作写历史。
 
 截止为 `YYYY-MM-DD` 或带时区 ISO 时间；缺失用 null。requirements 为字符串列表。确认幂等，过期版本和较旧消息覆盖返回409，任务不变。
+
+`POST /api/messages/{id}/reanalyze`：空对象或 `{ "mode":"rules" }`，按原文及原发布时间重新规则提取；保留消息ID，旧待确认草稿变为已忽略，生成使用当前任务版本的新草稿。已确认任务不改变，已确认草稿和历史仍保留。可用来恢复状态更新后的过期草稿，不必伪造原文或时间。
 `POST /api/proposals/{id}/dismiss` 忽略草稿，原消息保留。
 
 `PATCH /api/tasks/{id}`：

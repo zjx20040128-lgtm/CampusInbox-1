@@ -23,6 +23,20 @@ class ParsingTests(unittest.TestCase):
             p = parse_message(text, AT)[0]
             self.assertIsNone(p['deadline'])
             self.assertTrue(p['warnings'])
+    def test_date_before_deadline_word_is_extracted(self):
+        p=parse_message('《数学》第一次作业，10月12日18:00截止。',AT)[0]
+        self.assertEqual(p['deadline'],'2026-10-12T18:00:00+08:00')
+    def test_negation_and_material_cancellation_keep_task_active(self):
+        for text in ['《数学》第一次作业，不取消，截止10月12日18:00。',
+                     '《数学》第一次作业，取消纸质版，仍需提交电子版，截止10月12日18:00。']:
+            p=parse_message(text,AT)[0]
+            self.assertNotEqual(p['operation'],'cancel')
+            self.assertTrue(p['warnings'])
+        material=parse_message('《数学》第一次作业，取消纸质版，仍需提交电子版，截止10月12日18:00。',AT)[0]
+        self.assertIn('电子版',material['requirements'])
+    def test_explicit_task_cancellation_still_works(self):
+        for text in ['《数学》第一次作业已取消，不用提交。','《数学》取消第一次作业。']:
+            self.assertEqual(parse_message(text,AT)[0]['operation'],'cancel')
     def test_plain_notice_not_turned_into_task(self):
         self.assertEqual(parse_message('同学们节日快乐，请注意安全。', AT), [])
     def test_checklist_preserves_deliverables(self):
@@ -86,6 +100,44 @@ class InboxTests(unittest.TestCase):
         with self.assertRaises(Conflict):
             self.inbox.confirm(a['id'])
         self.assertEqual(self.inbox.task_detail(t['id'])['deadline'], '2026-10-16T18:00:00+08:00')
+    def test_stale_extension_recovers_by_reanalysis_without_changing_message(self):
+        t=self.create()
+        original=self.ingest('《软件工程》 第三次作业延期到10月15日18:00。',at='2026-10-04T09:00:00+08:00')
+        self.inbox.patch_task(t['id'],{'status':'in_progress'})
+        p=original['proposals'][0]
+        with self.assertRaises(Conflict): self.inbox.confirm(p['id'])
+        self.inbox.dismiss(p['id'])
+        rebuilt=self.inbox.reanalyze(original['message']['id'])
+        self.assertEqual(rebuilt['message']['id'],original['message']['id'])
+        self.assertEqual(rebuilt['message']['captured_at'],'2026-10-04T09:00:00+08:00')
+        self.assertNotEqual(rebuilt['proposals'][0]['id'],p['id'])
+        changed=self.inbox.confirm(rebuilt['proposals'][0]['id'])
+        self.assertEqual(changed['deadline'],'2026-10-15T18:00:00+08:00')
+        self.assertEqual(changed['status'],'in_progress')
+        self.assertEqual(len(self.inbox.messages()),2)
+    def test_link_edits_do_not_bypass_older_message_protection(self):
+        t=self.create()
+        p=self.ingest(source='较早群通知',at='2026-10-02T09:00:00+08:00')['proposals'][0]
+        self.assertEqual(p['action'],'link')
+        with self.assertRaises(Conflict):
+            self.inbox.confirm(p['id'],{'deadline':'2026-10-10T18:00:00+08:00'})
+        self.assertEqual(self.inbox.task_detail(t['id'])['deadline'],'2026-10-12T23:59:00+08:00')
+    def test_edited_link_is_recorded_as_actual_update(self):
+        t=self.create()
+        p=self.ingest(source='新群通知',at='2026-10-04T09:00:00+08:00')['proposals'][0]
+        self.assertEqual(p['action'],'link')
+        self.inbox.confirm(p['id'],{'deadline':'2026-10-15T18:00:00+08:00'})
+        history=self.inbox.task_detail(t['id'])['history'][0]
+        self.assertEqual(history['action'],'update')
+        self.assertEqual(history['after']['deadline'],'2026-10-15T18:00:00+08:00')
+    def test_reanalysis_replaces_pending_drafts_and_keeps_old_records(self):
+        original=self.ingest()
+        refreshed=self.inbox.reanalyze(original['message']['id'])
+        self.assertEqual(len(self.inbox.proposals()),1)
+        self.assertEqual(len(self.inbox.proposals(None)),2)
+        with self.assertRaises(Conflict): self.inbox.confirm(original['proposals'][0]['id'])
+        self.inbox.confirm(refreshed['proposals'][0]['id'])
+        self.assertEqual(len(self.inbox.tasks()),1)
     def test_cancel_requires_confirmation_and_scope_match(self):
         t = self.create()
         p = self.ingest('《软件工程》 第三次作业取消，不用提交。', at='2026-10-04T09:00:00+08:00')['proposals'][0]

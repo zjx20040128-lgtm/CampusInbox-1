@@ -76,6 +76,26 @@ class ApiTests(unittest.TestCase):
     def test_mobile_timestamp_is_required_for_relative_deadline(self):
         payload={'package_name':'com.chaoxing.mobile','notification_key':'missing-time','title':'《高等数学》 第一次作业','text':'明天截止'}
         self.assertEqual(self.request('/api/mobile/notifications','POST',payload)[0],400)
+    def test_stale_draft_can_be_rebuilt_against_current_version(self):
+        initial={'text':'《复核恢复》 第一次作业截止10月12日18:00。','captured_at':AT,'scope':'刷新班','source':'API通知'}
+        _,raw,_=self.request('/api/messages','POST',initial)
+        original=json.loads(raw)
+        _,raw,_=self.request('/api/proposals/'+original['proposals'][0]['id']+'/confirm','POST',{})
+        task=json.loads(raw)
+        initial['text']='《复核恢复》 第一次作业延期到10月14日18:00。'
+        initial['captured_at']='2026-10-04T09:00:00+08:00'
+        _,raw,_=self.request('/api/messages','POST',initial)
+        extension=json.loads(raw)
+        self.request('/api/tasks/'+task['id'],'PATCH',{'status':'in_progress','expected_version':task['version']})
+        self.assertEqual(self.request('/api/proposals/'+extension['proposals'][0]['id']+'/confirm','POST',{})[0],409)
+        code,raw,_=self.request('/api/messages/'+extension['message']['id']+'/reanalyze','POST',{})
+        self.assertEqual(code,200)
+        rebuilt=json.loads(raw)
+        self.assertEqual(rebuilt['message']['id'],extension['message']['id'])
+        _,raw,_=self.request('/api/proposals/'+rebuilt['proposals'][0]['id']+'/confirm','POST',{})
+        result=json.loads(raw)
+        self.assertEqual(result['deadline'],'2026-10-14T18:00:00+08:00')
+        self.assertEqual(result['status'],'in_progress')
     def test_missing_resource_is_404_not_server_error(self):
         self.assertEqual(self.request('/api/tasks/nonexistent')[0],404)
     def test_encoded_traversal_cannot_read_local_db(self):

@@ -86,6 +86,28 @@ function renderTasks(){
   $('#courseFilter').addEventListener('change',e=>{filters.course=e.target.value;taskRows()});
   $('#statusFilter').addEventListener('change',e=>{filters.status=e.target.value;taskRows()});
 }
+function proposalEdits(card,strict=false){
+  const fields={};for(const name of ['title','course','scope','kind'])fields[name]=$(`[data-field="${name}"]`,card).value;
+  const precision=$('[data-precision]',card).value,value=$('[data-field="deadline"]',card).value;
+  if(strict&&precision!=='unknown'&&!value)throw new Error('请填写截止日期，或选择“未明确”。');
+  fields.deadline=precision==='unknown'||!value?null:precision==='minute'?value+(value.length===16?':00':'')+'+08:00':value;
+  fields.requirements=[...new Set($('[data-field="requirements"]',card).value.split('\n').map(x=>x.trim()).filter(Boolean))];
+  return fields;
+}
+function proposalAction(p,fields){
+  if(!p.before)return 'create';
+  if(p.candidate.operation==='cancel')return 'cancel';
+  const materials=p.before.checklist.map(x=>x.text);
+  const changedMaterials=fields.requirements.length&&(fields.requirements.length!==materials.length||fields.requirements.some(x=>!materials.includes(x)));
+  return fields.deadline&&fields.deadline!==p.before.deadline||changedMaterials||fields.kind!==p.before.kind?'update':'link';
+}
+function syncProposalAction(card){
+  const p=state.proposals.find(x=>x.id===card.dataset.proposal);if(!p)return;
+  const action=proposalAction(p,proposalEdits(card));
+  $('[data-confirm]',card).textContent={create:'确认创建',update:'确认变更',link:'关联来源',cancel:'确认取消'}[action];
+  const hint=$('[data-action-hint]',card);hint.hidden=action===p.action;
+  hint.textContent=action==='update'?'本次编辑将更新已有任务；按变更校验并保留历史。':'本次将只关联原消息来源，不修改任务内容。';
+}
 function proposalCard(p){
   const c=p.candidate,label={create:'新任务',update:'截止 / 材料变更',link:'重复任务 · 关联来源',cancel:'取消任务'}[p.action];
   const locked=p.target_id?'disabled':'';
@@ -96,11 +118,11 @@ function proposalCard(p){
   <label class="field">提交材料（每行一项）<textarea data-field="requirements" rows="2">${esc(c.requirements.join('\n'))}</textarea></label>
   ${c.warnings.length?`<div class="warning">${c.warnings.map(w=>`<p>△ ${esc(w)}</p>`).join('')}</div>`:''}
   <details class="evidence"><summary>查看消息原文与提取依据</summary><pre>${esc(state.messages.find(m=>m.id===p.message_id)?.text||c.evidence)}</pre><p>原文日期依据：${esc(c.deadline_evidence||'未识别')}。${p.target_id?'已有任务的名称、课程和班级不能在此更改；需重新导入以重新匹配。':''}</p></details><p class="error-text proposal-error" role="alert"></p>
-  <div class="proposal-actions"><button class="button subtle" data-dismiss="${p.id}">忽略草稿</button><button class="button primary" data-confirm="${p.id}">${{create:'确认创建',update:'确认变更',link:'关联来源',cancel:'确认取消'}[p.action]}</button></div></article>`;
+  <p class="helper" data-action-hint hidden></p><p class="helper">需要重新核对时可刷新草稿：使用本地规则并保留原消息时间。</p><div class="proposal-actions"><button class="button subtle" data-reanalyze-message="${p.message_id}">刷新草稿</button><button class="button subtle" data-dismiss="${p.id}">忽略草稿</button><button class="button primary" data-confirm="${p.id}">${{create:'确认创建',update:'确认变更',link:'关联来源',cancel:'确认取消'}[p.action]}</button></div></article>`;
 }
 function renderInbox(){
   content.innerHTML=intro('每一条通知，都有据可查。','先核对，再创建任务。重复、延期和取消都会保留来源。','MESSAGE INBOX')+`<div class="section-tabs"><button class="section-tab ${inboxTab==='pending'?'active':''}" data-inbox-tab="pending">待确认草稿 ${state.proposals.length}</button><button class="section-tab ${inboxTab==='messages'?'active':''}" data-inbox-tab="messages">消息记录 ${state.messages.length}</button></div>`+
-    (inboxTab==='pending'?(state.proposals.length?state.proposals.map(proposalCard).join(''):empty('待确认区已经清空','新通知进入这里，确认后会出现在待办中。','<button class="button primary" data-open-import>导入通知</button>')):(state.messages.length?state.messages.map(m=>`<article class="message-card"><div class="message-heading"><strong>${esc(m.source)}</strong><span>${esc(dateLabel(m.captured_at))}</span></div><div class="priority-meta">${pill(m.scope||'未设置班级','outline')}${pill(m.mode==='agent'?'模型工具提取':'本地规则提取','green')}${m.sample?pill('示例','amber'):''}</div><pre>${esc(m.text)}</pre>${m.trace.length?traceHTML(m.trace):''}</article>`).join(''):empty('还没有导入消息','文本、截图和手机通知都可以进入收件箱。')));
+    (inboxTab==='pending'?(state.proposals.length?state.proposals.map(proposalCard).join(''):empty('待确认区已经清空','新通知进入这里，确认后会出现在待办中。','<button class="button primary" data-open-import>导入通知</button>')):(state.messages.length?state.messages.map(m=>`<article class="message-card"><div class="message-heading"><strong>${esc(m.source)}</strong><span>${esc(dateLabel(m.captured_at))}</span></div><div class="priority-meta">${pill(m.scope||'未设置班级','outline')}${pill(m.mode==='agent'?'模型工具提取':'本地规则提取','green')}${m.sample?pill('示例','amber'):''}</div><pre>${esc(m.text)}</pre>${m.trace.length?traceHTML(m.trace):''}<button class="button small" data-reanalyze-message="${m.id}">按规则重新提取</button></article>`).join(''):empty('还没有导入消息','文本、截图和手机通知都可以进入收件箱。')));
 }
 function renderCalendar(){
   const year=month.getFullYear(),mn=month.getMonth();
@@ -182,15 +204,12 @@ document.addEventListener('click',async event=>{
     if(button.hasAttribute('data-demo')){await busy(button,async()=>{await json('/api/demo',{method:'POST',body:{}});await refresh();toast('示例数据已加载，全部标注为示例')});return}
     if(button.dataset.detail){await openTask(button.dataset.detail);return}
     if(button.dataset.confirm){
-      const action=state.proposals.find(p=>p.id===button.dataset.confirm)?.action;
       const card=button.closest('.proposal-card');$('.proposal-error',card).textContent='';
-      const fields={};for(const name of ['title','course','scope','kind'])fields[name]=$(`[data-field="${name}"]`,card).value;
-      const precision=$('[data-precision]',card).value,deadline=$('[data-field="deadline"]',card).value;
-      if(precision!=='unknown'&&!deadline)throw new Error('请填写截止日期，或选择“未明确”。');
-      fields.deadline=precision==='unknown'?null:precision==='minute'?deadline+(deadline.length===16?':00':'')+'+08:00':deadline;
-      fields.requirements=$('[data-field="requirements"]',card).value.split('\n').map(x=>x.trim()).filter(Boolean);
+      const fields=proposalEdits(card,true),p=state.proposals.find(p=>p.id===button.dataset.confirm);
+      const action=proposalAction(p,fields);
       await busy(button,async()=>{try{await json('/api/proposals/'+button.dataset.confirm+'/confirm',{method:'POST',body:fields});await refresh();toast(action==='update'?'变更已确认':'任务已确认')}catch(error){$('.proposal-error',card).textContent=error.message;throw error}});return;
     }
+    if(button.dataset.reanalyzeMessage){await busy(button,async()=>{await json('/api/messages/'+button.dataset.reanalyzeMessage+'/reanalyze',{method:'POST',body:{mode:'rules'}});inboxTab='pending';view='inbox';await refresh();toast('草稿已刷新，请重新核对')});return}
     if(button.dataset.dismiss){await busy(button,async()=>{await json('/api/proposals/'+button.dataset.dismiss+'/dismiss',{method:'POST',body:{}});await refresh();toast('草稿已忽略，消息原文仍保留')});return}
     if(button.hasAttribute('data-month')){month=button.dataset.month==='0'?new Date():new Date(month.getFullYear(),month.getMonth()+Number(button.dataset.month),1);renderCalendar();return}
     if(button.dataset.download){await busy(button,()=>download(button.dataset.download));return}
@@ -201,10 +220,12 @@ document.addEventListener('click',async event=>{
     if(button.hasAttribute('data-notifications')){if(!('Notification' in window))throw new Error('此浏览器暂不支持系统通知。');const permission=await Notification.requestPermission();if(permission==='granted'){localStorage.setItem('courseinbox-reminders','enabled');await notify(state.summary);toast('已开启页面运行期间的截止提醒')}else{toast('系统通知未授权，页面内仍显示截止提醒',true)}return}
   }catch(error){toast(error.message,true)}
 });
+document.addEventListener('input',event=>{const card=event.target.closest('.proposal-card');if(card&&event.target.dataset.field)syncProposalAction(card)});
 document.addEventListener('change',async event=>{
   const input=event.target;
   try{
-    if(input.hasAttribute('data-precision')){const field=$('[data-field="deadline"]',input.closest('.proposal-card'));field.disabled=input.value==='unknown';field.type=input.value==='minute'?'datetime-local':'date';field.value='';return}
+    if(input.hasAttribute('data-precision')){const field=$('[data-field="deadline"]',input.closest('.proposal-card'));field.disabled=input.value==='unknown';field.type=input.value==='minute'?'datetime-local':'date';field.value='';syncProposalAction(input.closest('.proposal-card'));return}
+    if(input.closest('.proposal-card')&&input.dataset.field){syncProposalAction(input.closest('.proposal-card'));return}
     if(input.dataset.status){const task=state.tasks.find(t=>t.id===input.dataset.status);await json('/api/tasks/'+task.id,{method:'PATCH',body:{status:input.value,expected_version:task.version}});await refresh();toast(input.value==='done'?'已做完，记得在原平台提交':'任务状态已保存');return}
     if(input.dataset.detailStatus){await saveDetail({status:input.value});return}
     if(input.hasAttribute('data-check')){const values=Array.from($('#taskDetail').querySelectorAll('[data-check]')).map(i=>i.checked);await saveDetail({checklist:values});return}

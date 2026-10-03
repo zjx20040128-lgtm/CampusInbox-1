@@ -2,6 +2,8 @@
   "passed": true,
   "journeys": [
     "demo",
+    "stale draft recovery",
+    "edited source link becomes update",
     "extension review",
     "text import",
     "confirmation",

@@ -76,7 +76,9 @@ def extract_deadline(text, anchor):
     if not change:
         cue = re.search(r'(?:截止(?:时间|日期)?(?:为|到|至)?|截至|最晚|提交时间)\s*[:：]?', text)
         if cue:
-            segment = text[cue.end():]
+            prefix=re.split(r'[。；;，,\n]',text[:cue.start()])[-1]
+            has_prefix_date=re.search(r'\d{1,2}\s*[月/-]\s*\d{1,2}|今天|今日|明天|明日|后天|后日|(?:周|星期)[一二三四五六日天]',prefix)
+            segment=prefix if has_prefix_date else text[cue.end():]
     explicit = re.search(r'(?:(\d{4})\s*[年/-]\s*)?(\d{1,2})\s*[月/-]\s*(\d{1,2})(?:\s*日|\b)', segment)
     chosen = None
     evidence = ''
@@ -136,6 +138,22 @@ def extract_deadline(text, anchor):
 
 TASK_PATTERN = r'第[零〇一二三四五六七八九十百\d]+次(?:作业|实验|测验|考试)|(?:实验|作业|报告)\s*[零〇一二三四五六七八九十\d]+|(?:期中|期末)考试'
 
+def detect_operation(text, title):
+    base='update' if re.search(r'延期|延至|推迟|改为|调整',text) else 'create'
+    if not re.search(r'取消|撤销|作废|无需提交|不用提交|不必提交|免交',text):
+        return base, []
+    negative=re.search(r'(?:不(?:要|会|再)?|未(?:被)?)(?:取消|撤销|作废)',text)
+    narrowed=re.search(r'(?:取消|撤销|作废|无需提交|不用提交)[^。；;，,\n]{0,18}(?:纸质|纸面|电子|打印|手写|线下|版本|版)',text)
+    continuing=re.search(r'仍需|仍须|还需|照常|继续提交|继续完成',text)
+    if negative or narrowed or continuing:
+        return base, ['取消用语包含否定、材料限定或继续提交要求，保留任务；请核对原文。']
+    escaped=re.escape(title)
+    explicit=re.search(r'(?:取消|撤销|作废)\s*(?:本次|该|这次)?\s*'+escaped,text) or re.search(escaped+r'\s*(?:已|现已|将)?\s*(?:取消|撤销|作废|无需提交|不用提交|不必提交|免交)',text)
+    standalone=any(re.fullmatch(r'\s*(?:现已|已|现|本次(?:任务|作业)?|该(?:任务|作业)?)?\s*(?:取消|撤销|作废|无需提交|不用提交|不必提交|免交)\s*[！!]?\s*',clause) for clause in re.split(r'[。；;，,\n]',text))
+    if explicit or standalone:
+        return 'cancel', []
+    return base, ['取消对象不明确，保留任务；请核对是否只是材料要求变化。']
+
 def parse_message(text, captured_at, course='', scope=''):
     text = clean_string(text, '消息', 30000, True)
     anchor = parse_timestamp(captured_at)
@@ -154,14 +172,20 @@ def parse_message(text, captured_at, course='', scope=''):
         label = re.search(r'(?:任务|标题)\s*[:：]\s*([^\n，,。；;]{1,100})', block)
         generic = re.search(r'实验报告|课程设计|毕业论文|论文|实验|考试|作业|签到|答辩|报告', block)
         title = title_match.group(0) if title_match else (label.group(1) if label else (generic.group(0) if generic else '课程任务'))
-        operation = 'cancel' if re.search(r'(?:取消|作废|无需提交|不用提交)', block) else ('update' if re.search(r'延期|延至|推迟|改为|调整', block) else 'create')
+        operation, operation_warnings = detect_operation(block, title)
         deadline, precision, deadline_evidence, warnings = extract_deadline(block, anchor)
+        warnings.extend(operation_warnings)
         if not block_course:
             warnings.append('未识别课程，请填写后再确认。')
         if not title_match and not label:
             warnings.append('任务名称较笼统，不自动与其他任务合并。')
         requirements = []
-        submission = re.search(r'(?:提交|上传|上交)\s*[:：]?\s*([^。；;\n]{1,160})', block)
+        submission = None
+        for found in re.finditer(r'(?:提交|上传|上交)\s*[:：]?\s*([^。；;\n]{1,160})', block):
+            prefix=block[max(0,found.start()-8):found.start()]
+            if not re.search(r'(?:无需|不用|不必|不需|不要|不需要)(?:再)?$',prefix):
+                submission=found
+                break
         if submission:
             body = re.split(r'(?:截止|截至|最晚|于\s*\d|在\s*\d)', submission.group(1))[0]
             for part in re.split(r'[、，,和及+＋]', body):
@@ -248,25 +272,24 @@ class Inbox:
         key = task_key(candidate)
         row = db.execute('SELECT data FROM tasks WHERE task_key=?', (key,)).fetchone() if key else None
         return json.loads(row['data']) if row else None
+    @staticmethod
+    def _effective_action(target,candidate):
+        if not target: return 'create'
+        if candidate['operation']=='cancel': return 'cancel'
+        changed_deadline=bool(candidate['deadline'] and candidate['deadline']!=target['deadline'])
+        changed_materials=bool(candidate['requirements'] and set(candidate['requirements'])!={x['text'] for x in target['checklist']})
+        return 'update' if changed_deadline or changed_materials or candidate['kind']!=target['kind'] else 'link'
     def _proposal(self, db, candidate, message):
         c = validate_candidate(candidate, message)
         target = self._match(db, c)
         warnings = list(c['warnings'])
+        action = self._effective_action(target,c)
         if target:
-            if c['operation'] == 'cancel':
-                action = 'cancel'
-            elif c['deadline'] and c['deadline'] != target['deadline']:
-                action = 'update'
-                if c['operation'] != 'update':
-                    warnings.append('相同任务出现不同截止日期，请确认是否变更。')
-            elif c['requirements'] and set(c['requirements']) != {x['text'] for x in target['checklist']}:
-                action = 'update'
-            else:
-                action = 'link'
+            if action=='update' and c['deadline'] and c['deadline']!=target['deadline'] and c['operation']!='update':
+                warnings.append('相同任务出现不同截止日期，请确认是否变更。')
             if parse_timestamp(message['captured_at']) < parse_timestamp(target['last_source_at']) and action != 'link':
                 warnings.append('消息比当前任务来源更早，确认时将阻止覆盖，请查看最新通知。')
         else:
-            action = 'create'
             if c['operation'] in ('cancel', 'update'):
                 warnings.append('未找到同课程、同班级的原任务，请核对任务名称。')
         c['warnings'] = warnings
@@ -297,6 +320,19 @@ class Inbox:
             db.execute('INSERT INTO messages VALUES(?,?,?)', (m['id'], fingerprint, dump(m)))
             proposals = [self._proposal(db, c, m) for c in parsed]
             return dict(message=m, proposals=proposals, duplicate=False, mode=mode, trace=m['trace'])
+    def reanalyze(self, message_id):
+        """Explicit rule re-extraction; preserve source identity and original posted time."""
+        with self.lock,self.connection() as db:
+            row=db.execute('SELECT data FROM messages WHERE id=?',(message_id,)).fetchone()
+            if not row: raise NotFound('消息不存在。')
+            m=json.loads(row['data'])
+            candidates=parse_message(m['text'],m['captured_at'],m['course'],m['scope'])
+            m.setdefault('previous_analyses',[]).append(dict(mode=m['mode'],trace=m.get('trace',[]),at=m.get('last_analyzed_at',m['received_at'])))
+            m['mode'],m['trace'],m['last_analyzed_at']='rules',[],now_iso()
+            db.execute("UPDATE proposals SET status='dismissed' WHERE message_id=? AND status='pending'",(message_id,))
+            db.execute('UPDATE messages SET data=? WHERE id=?',(dump(m),message_id))
+            proposals=[self._proposal(db,c,m) for c in candidates]
+            return dict(message=m,proposals=proposals,mode='rules',trace=[],reanalyzed=True,duplicate=True)
     @staticmethod
     def _unpack_proposal(row):
         p = json.loads(row['data'])
@@ -337,17 +373,21 @@ class Inbox:
                 if not target or target['id'] != p['target_id']:
                     raise Conflict('更改课程、班级或名称会改变匹配结果，请忽略后重新导入。')
                 if target['version'] != p['expected_version']:
-                    raise Conflict('任务已被更新，本草稿版本已过期。请忽略并重新导入最新通知。')
+                    raise Conflict('任务已被更新，本草稿版本已过期。请点击“刷新草稿”，或在消息记录中重新提取。')
             elif target:
-                raise Conflict('另一草稿已经创建了该任务。请忽略并重新导入以关联来源。')
-            if target and p['action'] != 'link' and parse_timestamp(message['captured_at']) < parse_timestamp(target['last_source_at']):
+                raise Conflict('另一草稿已创建该任务，请刷新草稿后核对并关联来源。')
+            action = self._effective_action(target,c)
+            if target and action != 'link' and parse_timestamp(message['captured_at']) < parse_timestamp(target['last_source_at']):
                 raise Conflict('历史消息不能覆盖较新的已确认通知。')
+            action = self._effective_action(target,c)
+            p['action'] = action
             before = dict(target) if target else None
             if target:
                 task = dict(target)
                 if c['operation'] == 'cancel':
                     task['status'] = 'cancelled'
-                else:
+                elif action=='update':
+                    task['kind']=c['kind']
                     if c['deadline']:
                         task['deadline'], task['date_precision'] = c['deadline'],c['date_precision']
                     if c['requirements']:
