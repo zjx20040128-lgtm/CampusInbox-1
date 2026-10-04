@@ -126,3 +126,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.request('/..%2fdata%2finbox.sqlite3')[0],404)
 
 if __name__=='__main__': unittest.main()
+
+
+class ApkDownloadTests(unittest.TestCase):
+    def test_only_named_companion_apk_can_be_downloaded_without_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);mobile=root/'artifacts'/'mobile';mobile.mkdir(parents=True)
+            (mobile/'courseinbox-companion-0.2.0-debug.apk').write_bytes(b'fake-apk-fixture')
+            (mobile/'private.txt').write_text('not downloadable')
+            server=create_server('127.0.0.1',0,Inbox(root/'data'/'inbox.sqlite3'),TOKEN,root=root)
+            thread=threading.Thread(target=server.serve_forever);thread.start()
+            try:
+                url='http://127.0.0.1:'+str(server.server_port)
+                with urllib.request.urlopen(url+'/downloads/courseinbox-companion-0.2.0-debug.apk') as response:
+                    self.assertEqual(response.read(),b'fake-apk-fixture')
+                    self.assertEqual(response.headers.get_content_type(),'application/vnd.android.package-archive')
+                    self.assertIn('attachment',response.headers['Content-Disposition'])
+                for path in ['/downloads/private.txt','/downloads/../private.txt','/downloads/access-token.txt']:
+                    with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(url+path)
+                    self.assertEqual(error.exception.code,404)
+            finally:server.shutdown();server.server_close();thread.join()

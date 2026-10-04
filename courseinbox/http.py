@@ -116,7 +116,12 @@ def create_server(host,port,inbox,token,root=None,agent=None):
                     return self.response(200,{'token':token})
                 if not path.startswith('/api/'):
                     if method!='GET': return self.response(405,{'error':'方法不支持。'})
-                    static={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'}
+                    apk_name='courseinbox-companion-0.2.0-debug.apk'
+                    if path=='/downloads/'+apk_name:
+                        apk=root/'artifacts'/'mobile'/apk_name
+                        if not apk.is_file(): return self.response(404,{'error':'安装包尚未构建。'})
+                        return self.response(200,apk.read_bytes(),'application/vnd.android.package-archive',apk_name)
+                    static={'/':'index.html' ,'/index.html':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'}
                     target=static.get(path)
                     if not target or not (root/'web'/target).is_file():
                         return self.response(404,{'error':'页面不存在。'})
