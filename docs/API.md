@@ -1,6 +1,6 @@
 # CourseInbox API v0.1
 
-默认服务 `http://127.0.0.1:8765`。除 health、静态页面和回环 bootstrap 外，所有接口都需要 `Authorization: Bearer <data/access-token.txt>`。JSON POST/PATCH 使用 `Content-Type: application/json`。
+默认服务 `http://127.0.0.1:8765`。除 health、静态页面、固定 APK 下载、只读 pairing 和回环 bootstrap 外，所有接口都需要 `Authorization: Bearer <data/access-token.txt>`。JSON POST/PATCH 使用 `Content-Type: application/json`。
 
 浏览器 Origin 必须为当前服务同源；Host 必须为本机地址和服务端口。普通远程浏览器无法调用 bootstrap 取令牌，需手动输入已有令牌。服务默认仅回环监听，局域网显式启动。
 
@@ -83,3 +83,13 @@ captured_at 必填，使用通知的postTime，不用上传时间替代。packag
 ## 错误
 
 返回 `{"error":"可读说明"}`。400输入无效、401缺令牌、403来源/Host/应用未授权、404不存在、409版本冲突、502模型问题、500内部异常。令牌不出现在URL、工具结果或消息日志。
+
+## 手机配对与发现（0.2.0）
+
+LAN 模式公布 DNS-SD `_courseinbox._tcp.local.`；TXT 仅含 version、device_id、name。身份保存在 data/mobile-device.json。
+
+`GET /api/mobile/pairing?challenge=<64位小写十六进制nonce>` 是不携带令牌的只读请求，仍经过 Host / Origin 校验。响应为 version=1、device_id、name、challenge、address、port、proof；address 为校验通过的目标 IPv4。proof 是以访问令牌为密钥的 HMAC-SHA256，小写十六进制。消息是 UTF-8 的五行：courseinbox-pair-v1、device_id、challenge、address、十进制 port；LF 分隔，无尾部 LF。
+
+手机在 challenge、目标地址、端口、已配对身份及摘要全部通过后才向该端点携带 Bearer 发送通知。初次显式配对允许保存身份，普通补传不能更换身份。`GET /api/settings` 的 mobile_discovery 含固定名、身份、可用性、原因及当前地址，需要 Bearer 授权，不含令牌。
+
+`GET /downloads/courseinbox-companion-0.2.0-debug.apk` 提供固定名称的安装包下载，不包含令牌。其他下载路径仍返回404。

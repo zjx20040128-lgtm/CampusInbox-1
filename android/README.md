@@ -1,8 +1,8 @@
 # Android 通知伴侣
 
-本机已于 2026-10-03 成功构建 [调试安装包](../artifacts/mobile/courseinbox-companion-0.2.0-debug.apk)，并通过 APK 签名检查。支持 Android 8.0（API 26）及以上，应用包名为 `cn.courseinbox.companion`。
+本机已于 2026-10-04 成功构建 0.2.0 [调试安装包](../artifacts/mobile/courseinbox-companion-0.2.0-debug.apk)，并通过 APK 签名检查。支持 Android 8.0（API 26）及以上，应用包名为 `cn.courseinbox.companion`。
 
-APK 保存在本机 `artifacts/mobile/`，该目录不随 Git 提交。手机安装、通知授权、学习通真实通知接收尚未完成真机验收。[本次构建记录](../docs/verification/android-build.md)。
+APK 保存在本机 `artifacts/mobile/`，该目录不随 Git 提交。旧版通路已由用户确认发送成功；新版覆盖安装、自动发现及学习通真实通知仍需手机验收。[本次构建记录](../docs/verification/android-build.md)。
 
 ## 安装和学习通配对
 
@@ -11,10 +11,10 @@ APK 保存在本机 `artifacts/mobile/`，该目录不随 Git 提交。手机安
 3. 手机和电脑连接可互通的网络。电脑网页“手机连接”显示手机应填写的服务地址；填写电脑的局域网 IPv4，不要填写手机自己的 `127.0.0.1`。
 4. 在电脑网页点击“显示配对令牌”，将令牌填写到手机伴侣。填写班级/分组，并将应用白名单设为 `com.chaoxing.mobile`。电脑端也需允许同一包名，点击手机“保存配置”。
 5. 点击手机“授权通知访问”，在系统设置中启用 CourseInbox。返回后检查是否显示“通知监听已连接”。
-6. 可以先点击“发送示例通知事件”测试上传通路。示例标题和正文明确写有“示例”，这一步不算真实通知接收验收。
+6. 可以先点击“发送示例通知事件”测试上传通路。示例标题和正文明确写有“示例”，这一步不算真实学习通通知或新版发现恢复验收。
 7. 等待学习通在手机通知栏实际发出一条新通知。在电脑“消息收件箱 → 消息记录”核对来源 `Android · com.chaoxing.mobile`、消息原文和时间。有明确作业内容时，再核对任务草稿并确认。
 
-连接排查先用手机浏览器打开服务地址后的 `/api/health`，应返回 `status: ok`。如果打不开，检查电脑服务、当前 IP、网络是否互通及防火墙；访客网络或校园网络可能隔离设备，换到自己可控的网络再测试。手机上传失败时消息保留在队列，可点击“立即重试补传”。
+连接排查先用手机浏览器打开服务地址后的 `/api/health`，应返回 `status: ok`。如果打不开，检查电脑服务、当前 IP、网络是否互通及防火墙；访客网络或校园网络可能隔离设备；本用户手机需继续用校园 Wi-Fi，应先核对当前电脑地址及受限防火墙规则，必要时联系网络管理员。手机上传失败时消息保留在队列，可点击“立即重试补传”。
 
 ## 接收范围和补传
 
@@ -46,6 +46,9 @@ HTTP 配对仅允许私有 IPv4/localhost，远程服务需配置 HTTPS。令牌
 
 15 秒内无法找到或验证时保留消息。若校园网屏蔽发现，手动更新地址后重试；新地址也需通过原电脑身份验证。令牌变化需重新点击配对；换另一台电脑先点“重新配对另一台电脑”，该动作保留待传消息。
 
-协议测试：用 JDK 17 编译 `PairingProof.java`、`ConnectionResolver.java` 与 `protocol-tests/` 内两个测试主类，再运行 `PairingProofTest`、`ConnectionResolverTest`。这些 JVM 测试验证协议和恢复策略，不替代 Android 系统发现与安装验收。
+协议测试：用 JDK 17 编译 `PairingProof.java`、`ConnectionResolver.java` 与 `protocol-tests/` 内两个测试主类，再运行 `PairingProofTest`、`ConnectionResolverTest`。`PrivateAddressTest` 使用实际 Android 编译输出的 classes 检查 IPv4 过滤。这些 JVM 测试验证协议和恢复策略，不替代 Android 系统发现与安装验收。
 
 本次升级的手机自动发现、覆盖安装配置保留及 IP 变化恢复仍需真机确认。[验收记录](../docs/verification/mobile-autodiscovery.md)。
+
+
+独立检查修正：发现期间短时获取 Wi-Fi 多播锁并在所有退出路径释放（CHANGE_WIFI_MULTICAST_STATE 是正常权限）；单候选解析最多3秒，总发现预算15秒；手动地址的未保存编辑不会被后台刷新覆盖。Android 13 T Extensions 7 / Android 14+ 可取消解析；更旧系统没有公共取消接口，会忽略迟到结果并在系统忙时限时重试其他候选，具体系统行为仍需真机确认。

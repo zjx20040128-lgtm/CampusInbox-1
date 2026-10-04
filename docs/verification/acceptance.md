@@ -14,7 +14,10 @@
 Windows OCR使用zh-Hans-CN，真实识别samples/sample-notice.png，并提取第三次作业/实验报告/源代码/2026-10-12 23:59。识别文字仍需人工核对。
 启动器CheckOnly已找到本机Python；交付的start.ps1已实际启动本机服务并响应health。SQLite重开持久化已测试。独立审查完成，4项问题均有失败复现和修复后通过证据，详见review.md。
 
-已知未验证项：Android APK构建/实机授权/目标应用真实通知；真实模型推理；Docker构建和运行。提供源码/配置，不把这些标为已完成验收。
+已知未验证项：Android实机安装/授权/目标应用真实通知；真实模型推理；Docker构建和运行。Android调试APK已追加完成构建和签名检查，见[构建记录](android-build.md)；其余项目不标为已完成验收。
 网页提醒只在页面运行时检查；手机补传只在打开、连接、新通知和手动重试触发，没有可靠周期后台调度。
 
 最终正式服务已于本次交付通过启动器重启到修复版，health=ok，规则模式。空库加载合成示例后有3个标记为sample的任务、2个待确认草稿；正式数据与浏览器验收临时库分离。桌面和手机预览已检查并保存到docs/images。源码ZIP由git archive生成，不含data、.env、访问令牌或.git。
+
+
+2026-10-04 手机自动发现升级：新增验收见 [mobile-autodiscovery.md](mobile-autodiscovery.md)，Python 测试现为53项。0.2.0 APK 包名/签名及同机 mDNS、真实 LAN 配对证明、下载检查通过；真实手机发现和 IP 变化后恢复仍待实测。实施前后的正式数据均为4任务、6消息，本次测试使用临时数据。

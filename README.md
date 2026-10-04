@@ -75,7 +75,7 @@ python -m pip install -r requirements-optional.txt
 
 手机与电脑需在可互通网络。填电脑局域网 IP，不要填手机自己的 `127.0.0.1`。若系统防火墙拦截，请自行按需允许 Python 的专用网络访问；启动器不会自动修改防火墙。
 
-手机工程和安装步骤见 [android/README.md](android/README.md)。本机已构建并验证签名的 [Android 调试安装包](artifacts/mobile/courseinbox-companion-0.2.0-debug.apk)，支持 Android 8.0（API 26）及以上。源码重建需要 JDK17、SDK35、Build Tools35.0.0、Gradle8.11.1；可使用 Android Studio 或命令行工具。**APK 构建已验证；手机安装、通知授权和学习通真实通知接收仍需真机验证**。
+手机工程和安装步骤见 [android/README.md](android/README.md)。本机已构建并验证签名的 [Android 调试安装包](artifacts/mobile/courseinbox-companion-0.2.0-debug.apk)，支持 Android 8.0（API 26）及以上。源码重建需要 JDK17、SDK35、Build Tools35.0.0、Gradle8.11.1；可使用 Android Studio 或命令行工具。**0.2.0 APK 构建和原签名一致性已验证；新版覆盖安装、自动发现及学习通真实通知接收仍需手机验证**。
 
 授权通知访问后，手机只接收白名单应用已发布的系统通知，保留通知时间并尝试上传。电脑不可达时最多保存200条；客户端启动、监听连接、收到新通知或手动重试时补传。基础版未实现可靠周期后台重试。通知全文、附件、历史和系统隐藏内容可能无法取得，原平台详情需另行核对。
 
@@ -151,7 +151,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-mobile.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/configure-mobile-firewall.ps1 -Apply
 ```
 
-第二步需要 Windows 管理员权限。规则只允许当前 WLAN 的本地子网访问本项目 Python 的 TCP 8765 和 UDP 5353，允许普通 DHCP 地址变化，不修改校园 DHCP、防火墙整体策略或其他应用。可不加 `-Apply` 预览。
+第二步需在以管理员身份打开的 PowerShell 中运行。本机此次配置已完成，以后直接启动即可。规则只允许当前 WLAN 的本地子网访问本项目 Python 的 TCP 8765 和 UDP 5353，允许普通 DHCP 地址变化，不修改校园 DHCP、防火墙整体策略或其他应用。可不加 `-Apply` 预览。
 
 之后双击 `start-lan.cmd` 即可；保持启动窗口打开。手机覆盖安装 0.2.0，不卸载旧版，填写电脑配对名称和原令牌，点“自动寻找并配对电脑”。校园网若屏蔽多播发现，填写电脑页面的当前服务地址再配对。已配对身份文件 `data/mobile-device.json` 应与数据目录一起备份。
 
