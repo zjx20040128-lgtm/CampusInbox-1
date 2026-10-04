@@ -12,10 +12,11 @@ import socket
 from datetime import datetime,timedelta
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit,unquote
+from urllib.parse import urlsplit,unquote,parse_qs
 from .core import Inbox,ValidationError,Conflict,NotFound,now_iso,CN,parse_timestamp
 from .agent import Agent,AgentError,provider_from_env
 from .files import extract_file,MAX_UPLOAD
+from .discovery import DiscoveryService
 
 MAX_BODY=12*1024*1024
 DEFAULT_PACKAGES=['com.chaoxing.mobile']
@@ -36,12 +37,6 @@ def create_server(host,port,inbox,token,root=None,agent=None):
     root=Path(root or Path(__file__).resolve().parents[1])
     configured=agent or Agent(inbox,provider_from_env())
     settings=load_settings(inbox.path.parent)
-    address_list={'localhost','127.0.0.1','::1'}
-    if host not in ('0.0.0.0','::'):
-        address_list.add(host)
-    try:
-        address_list.update(socket.gethostbyname_ex(socket.gethostname())[2])
-    except OSError: pass
     class Handler(BaseHTTPRequestHandler):
         server_version='CourseInbox/0.1'
         protocol_version='HTTP/1.0'
@@ -71,7 +66,7 @@ def create_server(host,port,inbox,token,root=None,agent=None):
                 port_number=target.port or 80
             except ValueError:
                 return self.response(403,{'error':'Host 无效。'}) or False
-            if host_name not in address_list or port_number!=self.server.server_port or target.path:
+            if host_name not in self.server.discovery.allowed_hosts() or port_number!=self.server.server_port or target.path:
                 return self.response(403,{'error':'此 Host 未授权。'}) or False
             origin=self.headers.get('Origin')
             if origin:
@@ -105,6 +100,15 @@ def create_server(host,port,inbox,token,root=None,agent=None):
                 path=urlsplit(self.path).path
                 if method=='GET' and path=='/api/health':
                     return self.response(200,{'status':'ok','app':'CourseInbox','version':'0.1.0'})
+                if method=='GET' and path=='/api/mobile/pairing':
+                    query=parse_qs(urlsplit(self.path).query,keep_blank_values=True)
+                    challenges=query.get('challenge',[])
+                    if set(query)!={'challenge'} or len(challenges)!=1 or not re.fullmatch('[0-9a-f]{64}',challenges[0]):
+                        raise ValidationError('配对挑战无效。')
+                    address=urlsplit('http://'+self.headers['Host']).hostname
+                    try: result=self.server.discovery.pairing(challenges[0],address)
+                    except ValueError: raise ValidationError('配对需使用电脑 IPv4 地址。') from None
+                    return self.response(200,result)
                 if method=='GET' and path=='/api/bootstrap':
                     host_name=urlsplit('http://'+self.headers['Host']).hostname
                     if not ipaddress.ip_address(self.client_address[0]).is_loopback or host_name not in ('localhost','127.0.0.1','::1'):
@@ -128,7 +132,7 @@ def create_server(host,port,inbox,token,root=None,agent=None):
                     if path=='/api/proposals': return self.response(200,inbox.proposals())
                     if path=='/api/dashboard': return self.response(200,inbox.dashboard())
                     if path=='/api/settings':
-                        return self.response(200,dict(settings,agent=configured.info(),server_port=self.server.server_port,listen_host=host,addresses=sorted(address_list),ocr=os.name=='nt',pdf_optional=True))
+                        return self.response(200,dict(settings,agent=configured.info(),server_port=self.server.server_port,listen_host=host,addresses=sorted(self.server.discovery.allowed_hosts()),mobile_discovery=self.server.discovery.status(),ocr=os.name=='nt',pdf_optional=True))
                     if path=='/api/calendar.ics': return self.response(200,inbox.calendar(),'text/calendar; charset=utf-8','courseinbox.ics')
                     if path=='/api/export.json':
                         content=dict(version='0.1.0',exported_at=now_iso(),messages=inbox.messages(),proposals=inbox.proposals(None),tasks=[inbox.task_detail(t['id']) for t in inbox.tasks()])
@@ -215,8 +219,18 @@ def create_server(host,port,inbox,token,root=None,agent=None):
             except (BrokenPipeError,ConnectionResetError,socket.timeout): pass
             except Exception:
                 self.response(500,{'error':'本地服务发生异常，请查看启动窗口并保留当前输入。'})
-    server=ThreadingHTTPServer((host,port),Handler)
+    class Server(ThreadingHTTPServer):
+        def server_close(self):
+            try:
+                if hasattr(self,'discovery'): self.discovery.close()
+            finally: super().server_close()
+    server=Server((host,port),Handler)
     server.daemon_threads=True
+    try:
+        server.discovery=DiscoveryService(inbox.path.parent,token,host,server.server_port)
+        server.discovery.start()
+    except Exception:
+        server.server_close();raise
     return server
 
 def seed_demo(inbox):

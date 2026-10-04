@@ -32,12 +32,14 @@ def main():
         parser.error('CI_ACCESS_TOKEN must contain at least 24 characters')
     try:
         server=create_server(args.host,args.port,Inbox(directory/'inbox.sqlite3'),token,root)
-    except (OSError,AgentError) as error:
+    except (OSError,ValueError,AgentError) as error:
         print(f'Cannot start CourseInbox: {error}',file=sys.stderr)
         return 1
     print(f'CourseInbox ready: http://127.0.0.1:{server.server_port}',flush=True)
     print(f'Data: {directory}\nMobile token file: {token_path}',flush=True)
-    if args.host=='0.0.0.0': print('LAN mode enabled; remote clients require the access token.',flush=True)
+    if args.host=='0.0.0.0':
+        print('LAN mode enabled; remote clients require the access token.',flush=True)
+        print('Paired computer: '+server.discovery.identity['name'],flush=True)
     if args.open_browser:
         opener=threading.Timer(0.6,lambda:webbrowser.open(f'http://127.0.0.1:{server.server_port}'))
         opener.daemon=True

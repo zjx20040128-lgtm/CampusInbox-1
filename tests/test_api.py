@@ -37,6 +37,30 @@ class ApiTests(unittest.TestCase):
                 return response.status,response.read(),response.headers
         except urllib.error.HTTPError as error:
             return error.code,error.read(),error.headers
+    def test_pairing_proof_is_readonly_and_requires_strict_challenge(self):
+        from unittest.mock import patch
+        from courseinbox.discovery import make_proof
+        challenge='a'*64
+        status,body,_=self.request('/api/mobile/pairing?challenge='+challenge,auth=False)
+        self.assertEqual(status,200)
+        result=json.loads(body)
+        expected=make_proof(self.server.discovery.identity,TOKEN,challenge,'127.0.0.1',self.server.server_port)
+        self.assertEqual(result,expected)
+        self.assertNotIn(TOKEN,body.decode())
+        for query in ['', '?challenge=', '?challenge='+('A'*64), '?challenge='+('a'*63), '?challenge='+('a'*1000), '?challenge='+challenge+'&challenge='+challenge]:
+            self.assertEqual(self.request('/api/mobile/pairing'+query,auth=False)[0],400)
+        self.assertEqual(self.request('/api/mobile/pairing?challenge='+challenge,auth=False,headers={'Host':'evil.example'})[0],403)
+        self.assertEqual(self.request('/api/mobile/pairing?challenge='+challenge,auth=False,headers={'Origin':'http://evil.example'})[0],403)
+        self.assertEqual(self.request('/api/state',auth=False)[0],401)
+        with patch('courseinbox.discovery.local_ipv4',return_value={'10.1.2.3'}):
+            self.server.discovery.refresh_addresses()
+            self.assertEqual(self.request('/api/health',auth=False,headers={'Host':'10.1.2.3:'+str(self.server.server_port)})[0],200)
+        with patch('courseinbox.discovery.local_ipv4',return_value={'10.1.2.4'}):
+            self.server.discovery.refresh_addresses()
+            self.assertEqual(self.request('/api/health',auth=False,headers={'Host':'10.1.2.4:'+str(self.server.server_port)})[0],200)
+            self.assertEqual(self.request('/api/health',auth=False,headers={'Host':'10.1.2.3:'+str(self.server.server_port)})[0],403)
+        self.server.discovery.refresh_addresses()
+
     def test_no_token_cannot_read_or_write_student_data(self):
         for path,method,body in [('/api/tasks','GET',None),('/api/messages','POST',{'text':'课程作业'})]:
             self.assertEqual(self.request(path,method,body,auth=False)[0],401)
