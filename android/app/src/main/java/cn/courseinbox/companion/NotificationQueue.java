@@ -42,15 +42,33 @@ public final class NotificationQueue {
         }
     }
     public static void clear(Context context) { synchronized(LOCK) { preferences(context).edit().putString("queue","[]").putString("last_status","已手动清空待传队列。").commit(); } }
+    public static void pair(Context context) {
+        final Context app=context.getApplicationContext();
+        WORKER.execute(() -> {
+            try {ComputerDiscovery.resolve(app,true);flush(app);}
+            catch(Exception error){preferences(app).edit().putString("last_status",error.getMessage()==null?"配对失败，事件保留。":error.getMessage()).apply();}
+        });
+    }
     public static void flush(Context context) {
         final Context app = context.getApplicationContext();
         synchronized(LOCK) { if (flushing) return; flushing = true; }
         WORKER.execute(() -> {
             try {
+                SharedPreferences config=preferences(app);
+                final int generation;
+                synchronized(ComputerDiscovery.CONFIG_LOCK){generation=config.getInt("config_generation",0);}
+                if(config.getBoolean("pairing_required",false)){config.edit().putString("last_status","令牌已改变，请重新配对后补传。").apply();return;}
+                if(!config.getString("paired_device_id","").isEmpty()) {
+                    try{ComputerDiscovery.resolve(app,false);}
+                    catch(Exception error){config.edit().putString("last_status",error.getMessage()==null?"寻找电脑失败，事件保留。":error.getMessage()).apply();return;}
+                }
                 for (int turn=0;turn<200;turn++) {
                     SharedPreferences prefs = preferences(app);
-                    String server = prefs.getString("server","").trim();
-                    String token = prefs.getString("token","").trim();
+                    final String server,token;
+                    synchronized(ComputerDiscovery.CONFIG_LOCK) {
+                        if(generation!=prefs.getInt("config_generation",0))break;
+                        server=prefs.getString("server","").trim();token=prefs.getString("token","").trim();
+                    }
                     if (server.isEmpty() || token.isEmpty()) { prefs.edit().putString("last_status","请先保存服务地址和令牌。").apply(); break; }
                     JSONObject event;
                     synchronized(LOCK) {
@@ -72,6 +90,7 @@ public final class NotificationQueue {
                         JSONObject payload = new JSONObject(event.toString()); payload.remove("_signature");
                         byte[] data = payload.toString().getBytes(StandardCharsets.UTF_8);
                         connection.setFixedLengthStreamingMode(data.length);
+                        synchronized(ComputerDiscovery.CONFIG_LOCK){if(generation!=prefs.getInt("config_generation",0))break;}
                         try (OutputStream output = connection.getOutputStream()) { output.write(data); }
                         int status = connection.getResponseCode();
                         if (status!=200 && status!=201) { prefs.edit().putString("last_status","服务器拒绝 HTTP "+status+"；事件仍在队列，请检查令牌、白名单和时间。").apply(); break; }
@@ -99,6 +118,6 @@ public final class NotificationQueue {
         if (host==null || uri.getUserInfo()!=null || uri.getQuery()!=null || uri.getFragment()!=null || (uri.getPath()!=null && !uri.getPath().isEmpty() && !uri.getPath().equals("/"))) return false;
         if ("https".equals(scheme)) return true;
         if (!"http".equals(scheme)) return false;
-        return "localhost".equals(host)||"127.0.0.1".equals(host)||host.matches("10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")||host.matches("192\\.168\\.\\d{1,3}\\.\\d{1,3}")||host.matches("172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}");
+        return "localhost".equals(host)||"127.0.0.1".equals(host)||ComputerDiscovery.privateIpv4(host);
     }
 }
