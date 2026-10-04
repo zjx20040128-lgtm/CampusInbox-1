@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.nsd.NsdManager;
+import android.net.wifi.WifiManager;
 import android.net.nsd.NsdServiceInfo;
 import android.os.Build;
 import org.json.JSONObject;
@@ -25,10 +26,9 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Bounded NSD and proof verification. Call only on a worker thread. */
 public final class ComputerDiscovery {
@@ -50,7 +50,7 @@ public final class ComputerDiscovery {
         if(prefs.getBoolean("pairing_required",false)&&!allowPairing)throw new IOException("令牌已更改，请重新配对后补传。");
         prefs.edit().putString("last_status","正在寻找并验证"+(id.isEmpty()?"电脑":"已配对电脑")+"…").apply();
         ConnectionResolver.Verified result=ConnectionResolver.resolve(cached,id,
-            ()->new Browser(app,wantedName),
+            ()->new Browser(app,wantedName.isEmpty()&&!id.isEmpty()?"CourseInbox-"+id.substring(0,8):wantedName),
             (endpoint,expected,deadline)->{
                 ConnectionResolver.Verified candidate=verifyEndpoint(endpoint,token,expected,deadline);
                 if(!wantedName.isEmpty()&&!wantedName.equals(candidate.name))throw new IOException("电脑名称不匹配。");
@@ -109,6 +109,7 @@ public final class ComputerDiscovery {
     private static final class Browser implements ConnectionResolver.Candidates {
         private final NsdManager manager;
         private final String wantedName;
+        private WifiManager.MulticastLock multicastLock;
         private final BlockingQueue<NsdServiceInfo> found=new ArrayBlockingQueue<>(32);
         private final ArrayDeque<String> ready=new ArrayDeque<>();
         private final Set<String> seen=Collections.synchronizedSet(new HashSet<>());
@@ -136,7 +137,13 @@ public final class ComputerDiscovery {
             if(!wifi)throw new IOException("请连接与电脑相同的 Wi-Fi，再寻找电脑。");
             manager=(NsdManager)app.getSystemService(Context.NSD_SERVICE);
             if(manager==null)throw new IOException("此手机的网络发现服务不可用，请手动连接。");
-            try {manager.discoverServices(SERVICE_TYPE,NsdManager.PROTOCOL_DNS_SD,listener);}
+            try {
+                WifiManager wifiManager=(WifiManager)app.getSystemService(Context.WIFI_SERVICE);
+                if(wifiManager==null)throw new IllegalStateException("Wi-Fi service unavailable");
+                multicastLock=wifiManager.createMulticastLock("CourseInbox-discovery");
+                multicastLock.setReferenceCounted(false);multicastLock.acquire();
+                manager.discoverServices(SERVICE_TYPE,NsdManager.PROTOCOL_DNS_SD,listener);
+            }
             catch(RuntimeException error){close();throw new IOException("无法启动网络发现，请手动连接。",error);}
         }
         public String next(long deadline) throws Exception {
@@ -145,24 +152,45 @@ public final class ComputerDiscovery {
                 if(!failure.isEmpty())throw new IOException(failure);
                 NsdServiceInfo candidate=found.poll(Math.min(200,timeout(deadline)),TimeUnit.MILLISECONDS);
                 if(candidate==null)continue;
-                CountDownLatch latch=new CountDownLatch(1);AtomicReference<NsdServiceInfo> resolved=new AtomicReference<>();
-                NsdManager.ResolveListener resolver=new NsdManager.ResolveListener() {
-                    public void onResolveFailed(NsdServiceInfo service,int code){latch.countDown();}
-                    public void onServiceResolved(NsdServiceInfo service){if(!closed.get())resolved.set(service);latch.countDown();}
-                };
-                try {manager.resolveService(candidate,resolver);}
-                catch(RuntimeException ignored){continue;}
-                // Keep only one legacy resolve operation active; the overall deadline bounds waiting.
-                boolean done=latch.await(Math.max(1,TimeUnit.NANOSECONDS.toMillis(deadline-System.nanoTime())),TimeUnit.MILLISECONDS);
-                if(!done){if(Build.VERSION.SDK_INT>=34)try{manager.stopServiceResolution(resolver);}catch(RuntimeException ignored){}return null;}
-                NsdServiceInfo info=resolved.get();if(info==null)continue;
+                AtomicInteger errorCode=new AtomicInteger(-1);
+                NsdServiceInfo info;
+                try {
+                    info=CandidateResolution.await(new CandidateResolution.Operation<NsdServiceInfo>() {
+                        private final AtomicBoolean active=new AtomicBoolean(true);
+                        private NsdManager.ResolveListener resolver;
+                        public void start(java.util.function.Consumer<NsdServiceInfo> callback) {
+                            resolver=new NsdManager.ResolveListener() {
+                                public void onResolveFailed(NsdServiceInfo service,int code){errorCode.set(code);if(active.get())callback.accept(null);}
+                                public void onServiceResolved(NsdServiceInfo service){if(active.get()&&!closed.get())callback.accept(service);}
+                            };
+                            manager.resolveService(candidate,resolver);
+                        }
+                        public void cancel() {
+                            active.set(false);
+                            if(resolver!=null&&canStopResolution())try{manager.stopServiceResolution(resolver);}catch(RuntimeException ignored){}
+                        }
+                    },deadline,3000);
+                } catch(RuntimeException ignored){continue;}
+                if(info==null) {
+                    // Legacy Android cannot cancel resolution. Retry busy candidates while
+                    // its system operation finishes, without blocking this browser on one host.
+                    if(errorCode.get()==NsdManager.FAILURE_ALREADY_ACTIVE&&System.nanoTime()<deadline){found.offer(candidate);Thread.sleep(Math.min(100,timeout(deadline)));}
+                    continue;
+                }
                 List<InetAddress> hosts=Build.VERSION.SDK_INT>=34?info.getHostAddresses():Collections.singletonList(info.getHost());
                 for(InetAddress address:hosts)if(address instanceof Inet4Address && privateIpv4(address.getHostAddress())&&info.getPort()>0&&info.getPort()<=65535)
                     ready.add("http://"+address.getHostAddress()+":"+info.getPort());
             }
             return null;
         }
+        private boolean canStopResolution(){
+            return Build.VERSION.SDK_INT>=34||(Build.VERSION.SDK_INT>=33&&android.os.ext.SdkExtensions.getExtensionVersion(33)>=7);
+        }
         private void stopDiscovery(){try{manager.stopServiceDiscovery(listener);}catch(RuntimeException ignored){}}
-        public void close(){closed.set(true);stopDiscovery();found.clear();ready.clear();}
+        public void close(){
+            closed.set(true);
+            try {stopDiscovery();found.clear();ready.clear();}
+            finally {if(multicastLock!=null&&multicastLock.isHeld())multicastLock.release();}
+        }
     }
 }

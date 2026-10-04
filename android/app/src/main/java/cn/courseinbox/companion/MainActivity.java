@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.provider.Settings;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -21,6 +23,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private EditText server,token,scope,packages,computerName;
     private TextView status;
+    private EndpointDraft endpointDraft;
     private final Handler handler=new Handler();
     private final Runnable update=new Runnable(){public void run(){refreshStatus();handler.postDelayed(this,1500);}};
     @Override public void onCreate(Bundle saved) {
@@ -32,6 +35,12 @@ public final class MainActivity extends Activity {
         SharedPreferences prefs=NotificationQueue.preferences(this);
         computerName=field(layout,"电脑配对名称（电脑页面复制；可留空）",prefs.getString("target_name",""),false);
         server=field(layout,"当前电脑地址（自动寻找成功后更新；也可手动填写）",prefs.getString("server","http://192.168.1.100:8765"),false);
+        endpointDraft=new EndpointDraft(server.getText().toString());
+        server.addTextChangedListener(new TextWatcher(){
+            public void beforeTextChanged(CharSequence value,int start,int count,int after){}
+            public void onTextChanged(CharSequence value,int start,int before,int count){endpointDraft.edited(value.toString());}
+            public void afterTextChanged(Editable value){}
+        });
         token=field(layout,"访问令牌",prefs.getString("token",""),true);
         scope=field(layout,"班级 / 分组",prefs.getString("scope",""),false);
         packages=field(layout,"应用白名单（包名，每行一个）",prefs.getString("packages","com.chaoxing.mobile"),false);packages.setSingleLine(false);packages.setMinLines(2);
@@ -71,6 +80,7 @@ public final class MainActivity extends Activity {
                 if(changedToken)editor.putBoolean("pairing_required",true);
                 if(!editor.commit())throw new IllegalStateException();
             }
+            endpointDraft.saved(endpoint);
             Toast.makeText(this,"配置已保存",Toast.LENGTH_SHORT).show();return true;
         } catch(Exception error){Toast.makeText(this,"请检查地址、至少24字符的令牌和电脑配对名称",Toast.LENGTH_LONG).show();return false;}
     }
@@ -82,7 +92,7 @@ public final class MainActivity extends Activity {
         String paired=prefs.getString("paired_name","");
         status.setText("配对电脑："+(paired.isEmpty()?"尚未配对":paired)+(prefs.getBoolean("pairing_required",false)?"（需重新配对）":"")+"\n待传事件："+NotificationQueue.count(this)+"\n"+prefs.getString("listener_status","尚未连接通知监听，请授权")+"\n"+prefs.getString("last_status","等待一条新通知")+"\n队列满时未保存："+prefs.getInt("dropped",0)+" 条");
         if(!server.hasFocus()&&!paired.isEmpty()&&!prefs.getBoolean("pairing_required",false)) {
-            String endpoint=prefs.getString("server","");if(!endpoint.contentEquals(server.getText()))server.setText(endpoint);
+            String endpoint=endpointDraft.automatic(prefs.getString("server",""));if(!endpoint.contentEquals(server.getText()))server.setText(endpoint);
         }
     }
     @Override protected void onResume(){super.onResume();handler.post(update);NotificationQueue.flush(this);}
