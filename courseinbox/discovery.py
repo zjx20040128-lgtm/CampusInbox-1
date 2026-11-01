@@ -78,6 +78,28 @@ def local_ipv4() -> set:
         return set(socket.gethostbyname_ex(socket.gethostname())[2])
 
 
+def gateway_ipv4(address_rows,route_rows):
+    """Exclude host-only adapters; a phone-facing address needs a default gateway."""
+    interfaces={int.from_bytes(row[16:20],'little') for row in route_rows
+                if row[:8]==bytes(8) and row[12:16]!=bytes(4)}
+    return {socket.inet_ntoa(row[:4]) for row in address_rows
+            if int.from_bytes(row[4:8],'little') in interfaces and private_ipv4(socket.inet_ntoa(row[:4]))}
+
+
+def lan_ipv4():
+    if os.name!='nt':return {address for address in local_ipv4() if private_ipv4(address)}
+    import ctypes
+    def table(name,row_size):
+        size=ctypes.c_ulong(0);api=getattr(ctypes.WinDLL('iphlpapi'),name)
+        code=api(None,ctypes.byref(size),False)
+        if code not in (0,122):raise OSError(code,'Cannot enumerate LAN adapters')
+        buffer=ctypes.create_string_buffer(size.value);code=api(buffer,ctypes.byref(size),False)
+        if code:raise OSError(code,'Cannot enumerate LAN adapters')
+        count=int.from_bytes(buffer.raw[:4],'little')
+        return [buffer.raw[4+i*row_size:4+(i+1)*row_size] for i in range(count)]
+    return gateway_ipv4(table('GetIpAddrTable',24),table('GetIpForwardTable',56))
+
+
 class MdnsPublisher:
     def __init__(self,identity,addresses,port):
         from zeroconf import Zeroconf,ServiceInfo,IPVersion

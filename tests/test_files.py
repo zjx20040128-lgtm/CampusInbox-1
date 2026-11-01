@@ -1,4 +1,9 @@
 import unittest
+import io
+import zipfile
+from pathlib import Path
+from courseinbox.files import extract_file
+from courseinbox.core import ValidationError
 from courseinbox.files import normalize_ocr
 from courseinbox.core import parse_message
 
@@ -15,3 +20,17 @@ class OcrTests(unittest.TestCase):
         self.assertIn('SQL scripts',normalize_ocr('请 提 交 SQL scripts 文 件'))
 
 if __name__=='__main__': unittest.main()
+
+class DocumentTests(unittest.TestCase):
+    def docx(self,xml):
+        data=io.BytesIO()
+        with zipfile.ZipFile(data,'w',zipfile.ZIP_DEFLATED) as archive:archive.writestr('word/document.xml',xml)
+        return data.getvalue()
+    def test_docx_keeps_paragraphs_and_table_requirements(self):
+        xml='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>请阅读两份材料</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>准备三个讨论问题</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>'
+        text,engine=extract_file('课前阅读说明.docx',self.docx(xml),Path('.'))
+        self.assertEqual(engine,'docx-text')
+        self.assertEqual(text,'请阅读两份材料\n准备三个讨论问题')
+    def test_docx_rejects_invalid_entity_and_oversized_expansion(self):
+        for data in [b'not a zip',self.docx('<!DOCTYPE document [<!ENTITY x "value">]><document>&x;</document>'),self.docx('x'* (20*1024*1024+1))]:
+            with self.assertRaises(ValidationError):extract_file('bad.docx',data,Path('.'))

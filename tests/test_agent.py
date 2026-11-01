@@ -39,6 +39,14 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result['candidates'][0]['scope'],'1班')
         self.assertEqual(result['trace'][0]['tool'],'propose_task')
         self.assertEqual(self.inbox.tasks(),[])
+        proposal_tool=next(tool for tool in p.seen[0][1] if tool['function']['name']=='propose_task')
+        properties=proposal_tool['function']['parameters']['properties']
+        self.assertIn('submission_method',properties)
+        self.assertIn('presentation',properties['kind']['enum'])
+        required=proposal_tool['function']['parameters']['required']
+        self.assertIn('deadline_evidence',required)
+        self.assertIn('submission_evidence',required)
+        self.assertIn('submission_method',required)
     def test_tools_cannot_expand_class_scope(self):
         first = self.inbox.ingest(TEXT,captured_at=AT,scope='2班')
         self.inbox.confirm(first['proposals'][0]['id'])
@@ -62,14 +70,17 @@ class AgentTests(unittest.TestCase):
         args={'title':'第三次作业','course':'软件工程','scope':'2班','evidence':'老师说全班免交','deadline':'2026-10-12T23:59:00+08:00'}
         p = FakeProvider([reply([call('propose_task',args)]),reply(content='无法解析')])
         result=Agent(self.inbox,p).analyze(TEXT,AT,'软件工程','1班')
-        self.assertEqual(result['candidates'],[])
+        self.assertEqual(len(result['candidates']),1)
+        self.assertEqual(result['candidates'][0]['title'],'第三次作业')
         self.assertIn('error',result['trace'][0]['result'])
     def test_failure_is_visible_not_silently_claimed_as_agent_success(self):
         class Broken:
             def chat(self,*args):
                 raise AgentError('模型不可达')
-        with self.assertRaises(AgentError):
-            Agent(self.inbox,Broken()).analyze(TEXT,AT,'','')
+        result=Agent(self.inbox,Broken()).analyze(TEXT,AT,'','')
+        self.assertEqual(result['candidates'][0]['title'],'第三次作业')
+        self.assertIn('模型辅助暂不可用',result['answer'])
+        self.assertEqual(result['trace'][0]['tool'],'model_assist')
 
 if __name__ == '__main__':
     unittest.main()

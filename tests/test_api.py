@@ -4,14 +4,30 @@ import threading
 import unittest
 import urllib.request
 import urllib.error
+from datetime import datetime
 from pathlib import Path
-from courseinbox.core import Inbox
-from courseinbox.http import create_server
+from courseinbox.core import Inbox,CN
+from courseinbox.http import create_server,seed_demo
 
 TOKEN='test-token-which-is-long-and-not-a-real-secret'
 AT='2026-10-03T16:00:00+08:00'
 
 class ApiTests(unittest.TestCase):
+    def test_supplement_is_authenticated_scoped_and_draft_only(self):
+        status,raw,_=self.request('/api/messages','POST',{'text':'《补充API课程》实验三，请提交报告。','captured_at':AT})
+        self.assertEqual(status,201)
+        original=json.loads(raw)['message'];path='/api/messages/'+original['id']+'/supplements'
+        self.assertEqual(self.request(path,auth=False)[0],401)
+        status,raw,_=self.request(path)
+        self.assertEqual(status,200);target=json.loads(raw)['targets'][0]['key']
+        before=len(self.inbox.tasks())
+        status,raw,_=self.request(path,'POST',{'text':'请同时提交源代码。','target':target})
+        self.assertEqual(status,201);result=json.loads(raw)
+        self.assertEqual(len(self.inbox.tasks()),before)
+        self.assertEqual(self.inbox.message(original['id'])['text'],original['text'])
+        self.assertEqual(len(result['proposals']),1)
+        self.assertEqual(self.request(path,'POST',{'text':'请同时提交源代码。','target':target})[0],200)
+        self.assertEqual(self.request(path,'POST',{'text':'未知字段','target':target,'source_url':'https://evil.example'})[0],400)
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
@@ -132,17 +148,82 @@ class ApkDownloadTests(unittest.TestCase):
     def test_only_named_companion_apk_can_be_downloaded_without_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);mobile=root/'artifacts'/'mobile';mobile.mkdir(parents=True)
-            (mobile/'courseinbox-companion-0.2.0-debug.apk').write_bytes(b'fake-apk-fixture')
+            (mobile/'courseinbox-companion-0.2.3-debug.apk').write_bytes(b'fake-apk-fixture')
+            (mobile/'courseinbox-companion-0.2.4-debug.apk').write_bytes(b'new-apk-fixture')
+            (mobile/'courseinbox-companion-0.2.5-debug.apk').write_bytes(b'redesigned-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.0-debug.apk').write_bytes(b'standalone-mobile-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.1-debug.apk').write_bytes(b'mobile-login-ui-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.2-debug.apk').write_bytes(b'mobile-login-footer-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.3-debug.apk').write_bytes(b'mobile-login-policy-text-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.4-debug.apk').write_bytes(b'mobile-page-layout-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.5-debug.apk').write_bytes(b'mobile-image-https-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.8-debug.apk').write_bytes(b'mobile-alert-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.9-debug.apk').write_bytes(b'mobile-recovery-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.15-debug.apk').write_bytes(b'mobile-connection-timing-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.16-debug.apk').write_bytes(b'mobile-notice-body-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.17-debug.apk').write_bytes(b'mobile-source-flow-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.18-debug.apk').write_bytes(b'mobile-history-filter-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.19-debug.apk').write_bytes(b'mobile-inbox-cleanup-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.20-debug.apk').write_bytes(b'mobile-arm-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.20-arm64-debug.apk').write_bytes(b'mobile-arm64-apk-fixture')
+            (mobile/'courseinbox-learning-0.3.20-universal-debug.apk').write_bytes(b'mobile-universal-apk-fixture')
             (mobile/'private.txt').write_text('not downloadable')
             server=create_server('127.0.0.1',0,Inbox(root/'data'/'inbox.sqlite3'),TOKEN,root=root)
             thread=threading.Thread(target=server.serve_forever);thread.start()
             try:
                 url='http://127.0.0.1:'+str(server.server_port)
-                with urllib.request.urlopen(url+'/downloads/courseinbox-companion-0.2.0-debug.apk') as response:
+                with urllib.request.urlopen(url+'/downloads/courseinbox-companion-0.2.3-debug.apk') as response:
                     self.assertEqual(response.read(),b'fake-apk-fixture')
                     self.assertEqual(response.headers.get_content_type(),'application/vnd.android.package-archive')
                     self.assertIn('attachment',response.headers['Content-Disposition'])
+                with urllib.request.urlopen(url+'/downloads/courseinbox-companion-0.2.4-debug.apk') as response:
+                    self.assertEqual(response.read(),b'new-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-companion-0.2.5-debug.apk') as response:
+                    self.assertEqual(response.read(),b'redesigned-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.0-debug.apk') as response:
+                    self.assertEqual(response.read(),b'standalone-mobile-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.1-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-login-ui-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.2-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-login-footer-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.3-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-login-policy-text-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.4-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-page-layout-apk-fixture')
+                try:
+                    response=urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.5-debug.apk')
+                except urllib.error.HTTPError as error:
+                    response=error
+                with response:
+                    self.assertEqual(response.code,200,'new APK must be downloadable')
+                    self.assertEqual(response.read(),b'mobile-image-https-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.8-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-alert-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.9-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-recovery-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.15-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-connection-timing-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.16-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-notice-body-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.17-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-source-flow-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.18-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-history-filter-apk-fixture')
+                with urllib.request.urlopen(url+'/downloads/courseinbox-learning-0.3.19-debug.apk') as response:
+                    self.assertEqual(response.read(),b'mobile-inbox-cleanup-apk-fixture')
+                for name,expected in [('courseinbox-learning-0.3.20-debug.apk',b'mobile-arm-apk-fixture'),('courseinbox-learning-0.3.20-arm64-debug.apk',b'mobile-arm64-apk-fixture'),('courseinbox-learning-0.3.20-universal-debug.apk',b'mobile-universal-apk-fixture')]:
+                    with urllib.request.urlopen(url+'/downloads/'+name) as response:
+                        self.assertEqual(response.read(),expected)
                 for path in ['/downloads/private.txt','/downloads/../private.txt','/downloads/access-token.txt']:
                     with self.assertRaises(urllib.error.HTTPError) as error:urllib.request.urlopen(url+path)
                     self.assertEqual(error.exception.code,404)
             finally:server.shutdown();server.server_close();thread.join()
+
+
+class DemoClockTests(unittest.TestCase):
+    def test_demo_extension_can_be_confirmed_before_nine_in_morning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inbox=Inbox(Path(tmp)/'inbox.sqlite3')
+            seed_demo(inbox,current=datetime(2026,10,5,0,5,tzinfo=CN))
+            extension=next(p for p in inbox.proposals() if p['action']=='update')
+            self.assertEqual(inbox.confirm(extension['id'])['version'],2)
