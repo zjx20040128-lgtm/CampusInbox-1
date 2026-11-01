@@ -623,14 +623,13 @@ function renderView(){
   window.dispatchEvent(new CustomEvent('campusinbox:view', {detail:view}));
   content.classList.toggle('today-page',view==='today');
   content.classList.toggle('tasks-page',view==='tasks');
-  if(view!=='evaluation')window.CourseInboxEvaluation?.unmount();
   if(view!=='mobile'){clearTimeout(mobileRemindersTimer);mobileRemindersTimer=null;mobileRemindersGeneration++}
   if(view!=='calendar'&&calendarClockTimer){clearInterval(calendarClockTimer);calendarClockTimer=null}
   document.querySelectorAll('.sidebar [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
-  ({today:renderToday,tasks:renderTasks,inbox:renderInbox,calendar:renderCalendar,mobile:renderMobile,sync:renderWebSync,evaluation:()=>window.CourseInboxEvaluation.mount(content,{json,api,esc,toast,intro,isActive:()=>view==='evaluation'})}[view]||renderToday)();
+  ({today:renderToday,tasks:renderTasks,inbox:renderInbox,calendar:renderCalendar,mobile:renderMobile,sync:renderWebSync}[view]||renderToday)();
 }
 function showView(next){
-  if(!['today','tasks','inbox','calendar','mobile','sync','evaluation'].includes(next))return;
+  if(!['today','tasks','inbox','calendar','mobile','sync'].includes(next))return;
   view=next;history.replaceState(null,'','#'+next);renderView();window.scrollTo({top:0});
 }
 async function saveDetail(changes){
@@ -1000,7 +999,7 @@ $('#authForm').addEventListener('submit',async event=>{
 $('#authDialog').addEventListener('cancel',e=>e.preventDefault());
 async function boot(){
   content.innerHTML='<div class="loading">正在打开你的学习空间…</div>';
-  try{const response=await fetch('/api/bootstrap');if(response.ok)token=(await response.json()).token;else token=sessionStorage.getItem('courseinbox-token')||'';await refresh(false);view=location.hash.slice(1)||'today';if(!['today','tasks','inbox','calendar','mobile','sync','evaluation'].includes(view))view='today';renderView();window.dispatchEvent(new Event('campusinbox:ready'));openDesktopLink().catch(error=>toast(error.message,true))}catch(error){content.innerHTML=empty('连接尚未完成','输入电脑端的访问令牌后可打开学习空间。');$('#authDialog').showModal()}
+  try{const response=await fetch('/api/bootstrap');if(response.ok)token=(await response.json()).token;else token=sessionStorage.getItem('courseinbox-token')||'';await refresh(false);view=location.hash.slice(1)||'today';if(!['today','tasks','inbox','calendar','mobile','sync'].includes(view))view='today';renderView();window.dispatchEvent(new Event('campusinbox:ready'));openDesktopLink().catch(error=>toast(error.message,true))}catch(error){content.innerHTML=empty('连接尚未完成','输入电脑端的访问令牌后可打开学习空间。');$('#authDialog').showModal()}
 }
 async function openDesktopLink(){
   const query=new URLSearchParams(location.search),message=query.get('message'),task=query.get('task');

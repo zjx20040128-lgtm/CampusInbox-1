@@ -45,14 +45,13 @@ async function backup() {
         图片、PDF、Word 和 PPT 解析使用 MinerU。可在根目录 .env 设置
         MINERU_API_KEY；配置后重新打开新建窗口。上传前会说明数据去向和额度。
       </p>
-      <button class="ci-btn" @click="$emit('navigate', 'evaluation')">打开识别评测 ↗</button>
     </section>
     <section class="ci-settings-section">
       <h2>🔌 数据源连接</h2>
       <p>继续使用学习通同步、QQ Connector、手机通知和浏览器组件。</p>
       <div class="ci-actions">
-        <button class="ci-btn ci-primary" @click="$emit('navigate', 'sync')">学习通与 QQ</button
-        ><button class="ci-btn" @click="$emit('navigate', 'mobile')">手机与推送</button>
+        <button class="ci-btn ci-primary" @click="$emit('navigate', 'sync')">学习通同步</button
+        ><button class="ci-btn" @click="$emit('navigate', 'mobile')">手机连接</button>
       </div>
     </section>
     <section class="ci-settings-section">

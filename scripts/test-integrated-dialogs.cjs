@@ -48,15 +48,28 @@ const { createTestServer } = require('./lib/browser-test-server.cjs');
       await page.setViewportSize({ width, height: width === 320 ? 650 : 1000 });
       await page.goto(url);
       const nav = page.getByRole('navigation', { name: '主导航' });
-      for (const name of ['今天', '我的任务', '日历', '收件箱', '提醒', '学习通同步', '手机连接', '识别评测', '设置']) {
+      assert.equal(await nav.getByRole('button').count(), 6);
+      assert.equal(await nav.getByRole('button', { name: /学习通同步|手机连接|识别评测/ }).count(), 0);
+      for (const name of ['今天', '我的任务', '日历', '收件箱', '提醒', '设置']) {
         await nav.getByRole('button', { name: new RegExp(name) }).click();
-        const workspaceView = { '收件箱': 'inbox', '学习通同步': 'sync', '手机连接': 'mobile', '识别评测': 'evaluation' }[name];
+        const workspaceView = { '收件箱': 'inbox' }[name];
         if (workspaceView) {
           await page.frameLocator('.ci-workspace-frame').locator('#content[data-page=' + workspaceView + ']').waitFor();
         }
         assert.equal(await page.getByRole('button', { name: '＋ 新建任务', exact: true }).count(), name === '我的任务' ? 1 : 0);
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), name + ': horizontal overflow');
       }
+      assert.equal(await page.getByRole('button', { name: /识别评测/ }).count(), 0);
+      for (const [name, view] of [['学习通同步', 'sync'], ['手机连接', 'mobile']]) {
+        await page.getByRole('button', { name, exact: true }).click();
+        await page.frameLocator('.ci-workspace-frame').locator('#content[data-page=' + view + ']').waitFor();
+        assert.equal(await nav.getByRole('button', { name: /设置/ }).getAttribute('aria-current'), 'page');
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), name + ': horizontal overflow');
+        await page.getByRole('button', { name: '← 返回设置', exact: true }).click();
+        await page.getByRole('heading', { name: '🔌 数据源连接', exact: true }).waitFor();
+      }
+      await page.goto(url + '#evaluation');
+      await page.getByRole('heading', { name: '嗨，同学！开个好头 ✌️', exact: true }).waitFor();
 
       await nav.getByRole('button', { name: /我的任务/ }).click();
       await page.getByRole('button', { name: '＋ 新建任务', exact: true }).click();
@@ -115,7 +128,7 @@ const { createTestServer } = require('./lib/browser-test-server.cjs');
       await frame.locator('#cleanupDialog').waitFor({ state: 'hidden' });
       await frame.locator('#content[data-page=inbox]').waitFor();
       assert.equal(await page.locator('.ci-workspace-frame').count(), 1);
-      console.log(width + 'px: nine pages, import, assistant, task, message, supplement, nested confirmation, Escape and workspace close verified');
+      console.log(width + 'px: six navigation pages, settings connections, removed evaluation, import and dialogs verified');
     }
     assert.deepEqual(errors, []);
   } finally {

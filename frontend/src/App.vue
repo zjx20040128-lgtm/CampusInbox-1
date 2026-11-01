@@ -34,9 +34,10 @@ const pages = [
   { id: 'reminders', icon: '🔔', label: '提醒', title: '别让重要的事溜走' },
   { id: 'sync', icon: '🔌', label: '学习通同步', title: '让课程消息，来到同一个地方' },
   { id: 'mobile', icon: '📱', label: '手机连接', title: '电脑与手机，保持连接' },
-  { id: 'evaluation', icon: '🧪', label: '识别评测', title: '用真实结果，了解识别效果' },
   { id: 'settings', icon: '⚙️', label: '设置', title: '按你的习惯来' },
 ]
+const connectionPages = ['sync', 'mobile']
+const navigationPages = pages.filter((page) => !connectionPages.includes(page.id))
 function validPage(v: string) {
   return pages.some((p) => p.id === v) ? v : 'today'
 }
@@ -82,7 +83,8 @@ const reminders = computed(() =>
   ),
 )
 const unread = computed(() => reminders.value.filter((t) => !read.value[reminderKey(t)]).length)
-const legacyPage = computed(() => ['inbox', 'sync', 'mobile', 'evaluation'].includes(view.value))
+const connectionPage = computed(() => connectionPages.includes(view.value))
+const legacyPage = computed(() => view.value === 'inbox' || connectionPage.value)
 const dateLabel = computed(() =>
   now.value.toLocaleDateString('zh-CN', {
     timeZone: 'Asia/Shanghai',
@@ -310,10 +312,12 @@ onUnmounted(() => {
       >
       <nav aria-label="主导航">
         <button
-          v-for="page in pages"
+          v-for="page in navigationPages"
           :key="page.id"
           class="ci-nav"
-          :aria-current="view === page.id ? 'page' : undefined"
+          :aria-current="
+            view === page.id || (page.id === 'settings' && connectionPage) ? 'page' : undefined
+          "
           @click="navigate(page.id)"
         >
           {{ page.icon }} {{ page.label
@@ -337,6 +341,9 @@ onUnmounted(() => {
     <main class="ci-main">
       <div class="ci-pagehead">
         <div>
+          <button v-if="connectionPage" class="ci-btn ci-text" @click="navigate('settings')">
+            ← 返回设置
+          </button>
           <div class="ci-eyebrow">{{ dateLabel }}</div>
           <h1>{{ currentPage.title }}</h1>
         </div>
